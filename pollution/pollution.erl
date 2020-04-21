@@ -41,7 +41,7 @@ createMonitor() -> #monitor{stations=dict:new(), stationsData=dict:new()}.
 
 addStation(Monitor, Name, Coordinates)  ->
   case ( dict:is_key(Name,  Monitor#monitor.stationsData) or dict:is_key(Coordinates,  Monitor#monitor.stations)) of
-    true ->  io:put_chars(standard_error, "There already exists a station with this features\n");
+    true ->  error(same_station_arrributes);
     false -> reallyAddStation(Monitor, Name, Coordinates)
   end.
 
@@ -61,15 +61,17 @@ addValue(Monitor, Id, Date, Type, Value ) ->
   Measure = #measurement{type=Type, value =Value, date=Date},
   Name = getStationName(Monitor,Id),
 
-  case existMeasure(Monitor,Name,Measure) of
-    true -> io:put_chars(standard_error, "There already exists a measurement with this features\n");
-    false -> #monitor{stations= Monitor#monitor.stations,
-                      stationsData=dict:update(Name,
-                        fun(Old) -> #stationData{coordinates = Old#stationData.coordinates,
-                                                  measurements = Old#stationData.measurements ++[Measure]}
-                        end,
-                        Monitor#monitor.stationsData)}
-  end.
+   case existMeasure(Monitor,Name,Measure) of
+          true -> error(same_values_to_station);
+          false -> #monitor{stations= Monitor#monitor.stations,
+            stationsData=dict:update(Name,
+              fun(Old) -> #stationData{coordinates = Old#stationData.coordinates,
+                measurements = Old#stationData.measurements ++[Measure]}
+              end,
+              Monitor#monitor.stationsData)}
+        end.
+
+
 
 %% Function 'existMeasure' check whether the measure, which we want to add already exist in monitor.
 
@@ -89,12 +91,12 @@ existMeasure(Monitor,Name,Measure) ->
 getStationName(Monitor, Id) when is_tuple(Id) ->
   case dict:is_key(Id,Monitor#monitor.stations) of
     true -> {_,Name} = dict:find(Id, Monitor#monitor.stations), Name; %% if Station does not exist in dict, dict:find returns error
-    _ ->  ct:fail('There is no such Station')
+    _ -> error(wrong_station_name)
   end;
 getStationName(Monitor, Id) ->
   case dict:is_key(Id,Monitor#monitor.stationsData) of
     true -> Name=Id,Name;
-    _ ->  ct:fail('There is no such Station')
+    _ -> error(wrong_station_name)
   end.
 
 
@@ -104,6 +106,7 @@ getStationName(Monitor, Id) ->
 
 removeValue(Monitor, Id, Date, Type) ->
   Name = getStationName(Monitor,Id),
+
   #monitor{stations= Monitor#monitor.stations,
     stationsData=dict:update(Name,
       fun(Old) -> #stationData{coordinates = Id,
@@ -119,12 +122,15 @@ removeValue(Monitor, Id, Date, Type) ->
 getOneValue(Monitor, Id, Date, Type) ->
   Name = getStationName(Monitor,Id),
   {_,_, Measurements}= dict:fetch(Name, Monitor#monitor.stationsData),
-  [{_,_,Val,_}] = lists:filter(
+  List= lists:filter(
     fun
       (Elem) when (Elem#measurement.type==Type) and (Elem#measurement.date==Date) -> true;
       (_)->false
     end, Measurements),
-  Val.
+  case List of
+    [] -> error(no_such_value);
+    [{_,_,Val,_}] ->  Val
+  end.
 
 %%------------getStationMean------------
 %% Function 'getStationMean' returns mean of all measurements of specified type of given station.
@@ -139,7 +145,12 @@ getStationMean(Monitor, Id, Type) ->
       (Elem) when (Elem#measurement.type==Type) -> true;
       (_)->false
     end, Measurements),
-  lists:foldl(fun(X, Sum) -> X#measurement.value + Sum end, 0, TypeList) / lists:foldl(fun(_, Sum) -> 1 + Sum end, 0, TypeList).
+  case TypeList of
+    [] -> 0.0;
+    _ -> lists:foldl(fun(X, Sum) -> X#measurement.value + Sum end, 0, TypeList) / lists:foldl(fun(_, Sum) -> 1 + Sum end, 0, TypeList)
+  end.
+
+
 
 
 %%------------getDailyMean------------
@@ -151,7 +162,12 @@ getStationMean(Monitor, Id, Type) ->
 getDailyMean(Monitor, Day,Type) ->
   Stations = dict:fetch_keys(Monitor#monitor.stationsData),
   TuplesList = getTuples(Monitor, Stations, Day, Type, []),
-  lists:foldl(fun(X, Sum) -> X#measurement.value + Sum end, 0, TuplesList) / lists:foldl(fun(_, Sum) -> 1 + Sum end, 0, TuplesList).
+  No = lists:foldl(fun(_, Sum) -> 1 + Sum end, 0, TuplesList),
+  case No of
+    0 -> 0.0;
+    _ -> lists:foldl(fun(X, Sum) -> X#measurement.value + Sum end, 0, TuplesList) / No
+  end.
+
 
 
 %% 'getTuples' returns a list of tuples, which contains measurements from given day.
