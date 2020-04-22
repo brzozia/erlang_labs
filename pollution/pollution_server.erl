@@ -94,7 +94,7 @@ loop(M) ->
       try pollution:removeValue(M,Id,Date, Type) of
         M2 ->Pid ! {reply, 'value removed'}, loop(M2)
       catch
-        error:no_such_value -> Pid ! {error, "there is no such value in monitor, so I cannot be remove it", badmatch}, loop(M);
+        error:no_such_value -> Pid ! {error, "there is no such value in monitor, so I cannot be remove it", no_such_value}, loop(M);
         error:Error -> Pid ! {error, "error during remove",Error}, loop(M)
       end;
 
@@ -103,7 +103,7 @@ loop(M) ->
       try pollution:getOneValue(M,Id,Date,Type) of
         Val -> Pid ! {reply, Val }, loop(M)
       catch
-        error:no_such_value -> Pid ! {error, "there is no such value in monitor, so I cannot get it", badmatch}, loop(M);
+        error:no_such_value -> Pid ! {error, "there is no such value in monitor, so I cannot get it", no_such_value}, loop(M);
         error:Error -> Pid ! {error, "error during getting value",Error}, loop(M)
       end;
 
@@ -112,7 +112,7 @@ loop(M) ->
       try pollution:getStationMean(M,Id,Type) of
         Val -> Pid ! {reply, Val }, loop(M)
       catch
-        error:no_such_value -> Pid ! {error, "there is no such value in monitor, so I cannot get it", badmatch}, loop(M);
+        error:no_such_value -> Pid ! {error, "there is no such value in monitor, so I cannot get it", no_such_value}, loop(M);
         error:Error -> Pid ! {error, "error during getting station's mean",Error}, loop(M)
       end;
 
@@ -121,7 +121,7 @@ loop(M) ->
       try pollution:getDailyMean(M,Day,Type) of
         Val -> Pid ! {reply, Val }, loop(M)
       catch
-        error:no_such_value -> Pid ! {error, "there is no such values in monitor, so I cannot get it", badmatch}, loop(M);
+        error:no_such_value -> Pid ! {error, "there is no such values in monitor, so I cannot get it", no_such_value}, loop(M);
         error:Error -> Pid ! {error, "error during getting daily mean",Error}, loop(M)
       end;
 
@@ -130,7 +130,7 @@ loop(M) ->
       try pollution:getWorstDay(M,Id,Type) of
         Val -> Pid ! {reply, Val }, loop(M)
       catch
-        error:no_such_value-> Pid ! {error, "there is no such values in monitor, so I cannot get it", badmatch}, loop(M);
+        error:no_such_value-> Pid ! {error, "there is no such values in monitor, so I cannot get it", no_such_value}, loop(M);
         error:Error -> Pid ! {error, "error during getting worst day",Error}, loop(M)
       end;
 
@@ -139,7 +139,7 @@ loop(M) ->
       try pollution:getWorstHourlyStation(M,Day, Hour,Type) of
         Val -> Pid ! {reply, Val }, loop(M)
       catch
-        error:no_such_value -> Pid ! {error, "there is no such values in monitor, so I cannot get it", badmatch}, loop(M);
+        error:no_such_value -> Pid ! {error, "there is no such values in monitor, so I cannot get it", no_such_value}, loop(M);
         error:Error -> Pid ! {error, "error during getting worst day",Error}, loop(M)
       end;
 
