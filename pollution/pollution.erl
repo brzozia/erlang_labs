@@ -41,14 +41,14 @@ createMonitor() -> #monitor{stations=dict:new(), stationsData=dict:new()}.
 
 addStation(Monitor, Name, Coordinates)  ->
   case ( dict:is_key(Name,  Monitor#monitor.stationsData) or dict:is_key(Coordinates,  Monitor#monitor.stations)) of
-    true ->  error(same_station_arrributes);
+    true ->  {error,same_station_attributes, Monitor};
     false -> reallyAddStation(Monitor, Name, Coordinates)
   end.
 
 reallyAddStation(Monitor, Name, Coordinates) ->
   StationsDict = dict:store(Coordinates, Name, Monitor#monitor.stations),
   StationsDataDict = dict:store(Name, #stationData{coordinates = Coordinates, measurements = []}, Monitor#monitor.stationsData),
-  #monitor{stations=StationsDict, stationsData=StationsDataDict}.
+  {reply,'station added',#monitor{stations=StationsDict, stationsData=StationsDataDict}}.
 
 
 %%------------addValue------------
@@ -59,18 +59,19 @@ reallyAddStation(Monitor, Name, Coordinates) ->
 
 addValue(Monitor, Id, Date, Type, Value ) ->
   Measure = #measurement{type=Type, value =Value, date=Date},
-  Name = getStationName(Monitor,Id),
-
-   case existMeasure(Monitor,Name,Measure) of
-          true -> error(same_values_to_station);
-          false -> #monitor{stations= Monitor#monitor.stations,
-            stationsData=dict:update(Name,
-              fun(Old) -> #stationData{coordinates = Old#stationData.coordinates,
-                measurements = Old#stationData.measurements ++[Measure]}
-              end,
-              Monitor#monitor.stationsData)}
-        end.
-
+  try getStationName(Monitor,Id) of
+    Name -> case existMeasure(Monitor,Name,Measure) of
+              true -> {error,same_values_to_station,Monitor};
+              false -> {reply, 'value added', #monitor{stations= Monitor#monitor.stations,
+                stationsData=dict:update(Name,
+                  fun(Old) -> #stationData{coordinates = Old#stationData.coordinates,
+                    measurements = Old#stationData.measurements ++[Measure]}
+                  end,
+                  Monitor#monitor.stationsData)}}
+            end
+  catch
+    error:wrong_station_name -> {error,wrong_station_name,Monitor}
+  end.
 
 
 %% Function 'existMeasure' check whether the measure, which we want to add already exist in monitor.
@@ -105,32 +106,45 @@ getStationName(Monitor, Id) ->
 %% It updates the dictionary, removing value from measurements' list.
 
 removeValue(Monitor, Id, Date, Type) ->
-  Name = getStationName(Monitor,Id),
+  try getStationName(Monitor,Id) of
+    Name ->
+      {At, Val}=getOneValue(Monitor, Id, Date, Type),
+      case At of
+        error -> {At,Val,Monitor};
+        reply ->{reply,'value removed',#monitor{stations= Monitor#monitor.stations,
+          stationsData=dict:update(Name,
+            fun(Old) ->  #stationData{coordinates = Id,
+              measurements = lists:delete(#measurement{type=Type,date=Date, value=Val},
+                Old#stationData.measurements) }
+            end,
+            Monitor#monitor.stationsData)}}
+      end
+  catch
+    error:wrong_station_name -> {error,wrong_station_name,Monitor}
+  end.
 
-  #monitor{stations= Monitor#monitor.stations,
-    stationsData=dict:update(Name,
-      fun(Old) -> #stationData{coordinates = Id,
-                                measurements = lists:delete(#measurement{type=Type,date=Date, value=getOneValue(Monitor, Id, Date, Type)},
-                                Old#stationData.measurements) }
-      end,
-      Monitor#monitor.stationsData)}.
 
 %%------------getOneValue------------
 %% Returns value from specified measurement of specified station, basing on station's Id.
 %% It gets list of measurements of the station and then filters this list.
 
 getOneValue(Monitor, Id, Date, Type) ->
-  Name = getStationName(Monitor,Id),
-  {_,_, Measurements}= dict:fetch(Name, Monitor#monitor.stationsData),
-  List= lists:filter(
-    fun
-      (Elem) when (Elem#measurement.type==Type) and (Elem#measurement.date==Date) -> true;
-      (_)->false
-    end, Measurements),
-  case List of
-    [] -> error(no_such_value);
-    [{_,_,Val,_}] ->  Val
+  try getStationName(Monitor,Id) of
+    Name -> {_,_, Measurements}= dict:fetch(Name, Monitor#monitor.stationsData),
+      List= lists:filter(
+        fun
+          (Elem) when (Elem#measurement.type==Type) and (Elem#measurement.date==Date) -> true;
+          (_)->false
+        end, Measurements),
+      case List of
+        [] -> {error,no_such_value};
+        [{_,_,Val,_}] ->  {reply,Val}
+      end
+  catch
+    error:wrong_station_name -> {error,wrong_station_name}
   end.
+
+
 
 %%------------getStationMean------------
 %% Function 'getStationMean' returns mean of all measurements of specified type of given station.
@@ -138,17 +152,21 @@ getOneValue(Monitor, Id, Date, Type) ->
 %% After that it uses foldl to compute the mean.
 
 getStationMean(Monitor, Id, Type) ->
-  Name = getStationName(Monitor,Id),
-  {_,_, Measurements}= dict:fetch(Name, Monitor#monitor.stationsData),
-  TypeList = lists:filter(
-    fun
-      (Elem) when (Elem#measurement.type==Type) -> true;
-      (_)->false
-    end, Measurements),
-  case TypeList of
-    [] -> 0.0;
-    _ -> lists:foldl(fun(X, Sum) -> X#measurement.value + Sum end, 0, TypeList) / lists:foldl(fun(_, Sum) -> 1 + Sum end, 0, TypeList)
+  try getStationName(Monitor,Id) of
+    Name ->  {_,_, Measurements}= dict:fetch(Name, Monitor#monitor.stationsData),
+      TypeList = lists:filter(
+        fun
+          (Elem) when (Elem#measurement.type==Type) -> true;
+          (_)->false
+        end, Measurements),
+      case TypeList of
+        [] -> {reply,0.0};
+        _ -> {reply,lists:foldl(fun(X, Sum) -> X#measurement.value + Sum end, 0, TypeList) / lists:foldl(fun(_, Sum) -> 1 + Sum end, 0, TypeList)}
+      end
+  catch
+    error:wrong_station_name -> {error,wrong_station_name}
   end.
+
 
 
 
@@ -164,8 +182,8 @@ getDailyMean(Monitor, Day,Type) ->
   TuplesList = getTuples(Monitor, Stations, Day, Type, []),
   No = lists:foldl(fun(_, Sum) -> 1 + Sum end, 0, TuplesList),
   case No of
-    0 -> 0.0;
-    _ -> lists:foldl(fun(X, Sum) -> X#measurement.value + Sum end, 0, TuplesList) / No
+    0 -> {reply,0.0};
+    _ -> {reply,lists:foldl(fun(X, Sum) -> X#measurement.value + Sum end, 0, TuplesList) / No}
   end.
 
 
@@ -190,21 +208,25 @@ getTuples(Monitor, [H | Stations], DateV, Type, TuplesList) ->
 %% It makes list of measurements of given type and from given station and calls 'compareMeasurements' with this list.
 
 getWorstDay(Monitor, Id, Type) ->
-  Name = getStationName(Monitor,Id),
-  {_,_, Measurements}= dict:fetch(Name, Monitor#monitor.stationsData),
-  TypeMeasurements = lists:filter(
-    fun
-      (Elem) when (Elem#measurement.type==Type) -> true;
-      (_)->false
-    end,Measurements),
-  compareMeasurements(TypeMeasurements,{}, 0 ).
+  try getStationName(Monitor,Id) of
+    Name ->  {_,_, Measurements}= dict:fetch(Name, Monitor#monitor.stationsData),
+      TypeMeasurements = lists:filter(
+        fun
+          (Elem) when (Elem#measurement.type==Type) -> true;
+          (_)->false
+        end,Measurements),
+      compareMeasurements(TypeMeasurements,{}, 0 )
+  catch
+    error:wrong_station_name -> {error,wrong_station_name}
+  end.
+
 
 
 %% 'compareMeasurements' compares measurements in given list.
 %% It returns datetime of the measurement with the highest value and this value.
 
 compareMeasurements([],WorstDate, WorstVal) ->
-  {WorstDate, WorstVal};
+  {reply,{WorstDate, WorstVal}};
 compareMeasurements([H | Tail],WorstDate, WorstVal) ->
   case H#measurement.value > WorstVal of
     true -> compareMeasurements(Tail,H#measurement.date, H#measurement.value);
@@ -236,7 +258,7 @@ findWorstStation(Monitor, [H | Stations], DateV, HourV, Type, WorstStationName, 
   {NewWorstStation, NewWorstValue} = compareMeasurementsHourly(NewTuplesList,WorstStationName, WorstValue, H),
   findWorstStation(Monitor,Stations, DateV,HourV, Type,NewWorstStation,NewWorstValue);
 findWorstStation(_, [], _, _,_,WorstStationName,WorstValue) ->
-  {WorstStationName,WorstValue}.
+  {reply,{WorstStationName,WorstValue}}.
 
 
 %% Compares values from list of given type with actual worst value.

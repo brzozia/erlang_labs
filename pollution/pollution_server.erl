@@ -10,7 +10,7 @@
 -author("Natalia Brzozowska").
 
 %% API
--export([start/0,stop/0, callAddStation/2,callAddValue/4,callGetDailyMean/2,callGetWorstDay/2,callGetWorstHourlyStation/3,callRemoveValue/3,callGetOneValue/3,callGetStationMean/2,waitForReply/0]).
+-export([start/0,stop/0, call/2]).
 -export([init/0,loop/1]).
 
 %% client
@@ -29,39 +29,16 @@ stop()->
   end.
 
 
-
-
-callAddStation(Name, Coordinates)->
-  monitor ! {self(), addStation, Name, Coordinates},
-  waitForReply().
-callAddValue(Id, Date, Type, Value) ->
-  monitor ! {self(), addValue, Id, Date, Type, Value},
-  waitForReply().
-callRemoveValue(Id, Date, Type) ->
-  monitor ! {self(), removeValue, Id, Date, Type },
-  waitForReply().
-callGetOneValue(Id, Date, Type) ->
-  monitor ! {self(), getOneValue, Id, Date, Type },
-  waitForReply().
-callGetStationMean(Id, Type) ->
-  monitor ! {self(), getStationMean, Id, Type },
-  waitForReply().
-callGetDailyMean( Day,Type) ->
-  monitor ! {self(), getDailyMean,Day,Type },
-  waitForReply().
-callGetWorstDay(Id, Type) ->
-  monitor ! {self(), getWorstDay, Id, Type },
-  waitForReply().
-callGetWorstHourlyStation(Day, Hour, Type) ->
-  monitor ! {self(), getWorstHourlyStation,Day, Hour, Type },
+call(Name, Args) ->
+  monitor ! {self(), Name, Args},
   waitForReply().
 
 
 waitForReply()->
   receive
     {reply, Msg} -> Msg;
-    {error, Msg, Error} -> io:format("~s~n",[Msg]), Error;
-    _ -> io:format("received something strange")
+    {error, Msg} -> {error,Msg};
+    {_,Msg} -> Msg,io:format("received something strange ~n")
   end.
 
 %% server
@@ -72,76 +49,45 @@ init() ->
 
 loop(M) ->
   receive
-    {Pid,addStation,Name, Coordinates}  ->
-      try pollution:addStation(M,Name,Coordinates) of
-        M2 ->Pid ! {reply, 'station added'}, loop(M2)
-      catch
-        error: same_station_arrributes ->Pid ! {error, "error occured during adding station",same_station_arrributes}, loop(M);
-        error:Error -> Pid ! {error, "error occured during adding station",Error}, loop(M)
-      end;
+    {Pid,addStation,[Name, Coordinates]}  ->
+      {Atom, Msg,M2} = pollution:addStation(M,Name,Coordinates),
+       Pid ! {Atom, Msg}, loop(M2);
 
 
-    {Pid,addValue,Id, Date, Type, Value}  ->
-      try pollution:addValue(M,Id,Date, Type,Value) of
-        M2 ->Pid !  {reply, 'value added'}, loop(M2)
-      catch
-        error: same_values_to_station -> Pid ! {error, "error occured during adding value",same_values_to_station}, loop(M);
-        error:Error -> Pid ! {error, "error occured during adding value",Error}, loop(M)
-      end;
+    {Pid,addValue,[Id, Date, Type, Value]}  ->
+      {Atom, Msg, M2}=pollution:addValue(M,Id,Date, Type,Value),
+      Pid ! {Atom, Msg}, loop(M2);
 
 
-    {Pid,removeValue, Id, Date, Type}  ->
-      try pollution:removeValue(M,Id,Date, Type) of
-        M2 ->Pid ! {reply, 'value removed'}, loop(M2)
-      catch
-        error:no_such_value -> Pid ! {error, "there is no such value in monitor, so I cannot be remove it", no_such_value}, loop(M);
-        error:Error -> Pid ! {error, "error during remove",Error}, loop(M)
-      end;
+    {Pid,removeValue,[ Id, Date, Type]}  ->
+      {Atom, Msg, M2}=pollution:removeValue(M,Id,Date, Type),
+      Pid ! {Atom, Msg}, loop(M2);
 
 
-    {Pid,getOneValue, Id, Date, Type}  ->
-      try pollution:getOneValue(M,Id,Date,Type) of
-        Val -> Pid ! {reply, Val }, loop(M)
-      catch
-        error:no_such_value -> Pid ! {error, "there is no such value in monitor, so I cannot get it", no_such_value}, loop(M);
-        error:Error -> Pid ! {error, "error during getting value",Error}, loop(M)
-      end;
+    {Pid,getOneValue, [Id, Date, Type]}  ->
+      {Atom,Val}=pollution:getOneValue(M,Id,Date,Type),
+      Pid ! {Atom, Val }, loop(M);
 
 
-    {Pid,getStationMean, Id, Type}  ->
-      try pollution:getStationMean(M,Id,Type) of
-        Val -> Pid ! {reply, Val }, loop(M)
-      catch
-        error:no_such_value -> Pid ! {error, "there is no such value in monitor, so I cannot get it", no_such_value}, loop(M);
-        error:Error -> Pid ! {error, "error during getting station's mean",Error}, loop(M)
-      end;
+    {Pid,getStationMean, [Id, Type]}  ->
+      {Atom,Val}=pollution:getStationMean(M,Id,Type),
+      Pid ! {Atom, Val }, loop(M);
 
 
-    {Pid,getDailyMean, Day,Type}  ->
-      try pollution:getDailyMean(M,Day,Type) of
-        Val -> Pid ! {reply, Val }, loop(M)
-      catch
-        error:no_such_value -> Pid ! {error, "there is no such values in monitor, so I cannot get it", no_such_value}, loop(M);
-        error:Error -> Pid ! {error, "error during getting daily mean",Error}, loop(M)
-      end;
+    {Pid,getDailyMean, [Day,Type]}  ->
+      {Atom,Val}=pollution:getDailyMean(M,Day,Type),
+        Pid ! {Atom, Val }, loop(M);
 
 
-    {Pid,getWorstDay, Id, Type}  ->
-      try pollution:getWorstDay(M,Id,Type) of
-        Val -> Pid ! {reply, Val }, loop(M)
-      catch
-        error:no_such_value-> Pid ! {error, "there is no such values in monitor, so I cannot get it", no_such_value}, loop(M);
-        error:Error -> Pid ! {error, "error during getting worst day",Error}, loop(M)
-      end;
+    {Pid,getWorstDay, [Id, Type]}  ->
+      {Atom,Val}=pollution:getWorstDay(M,Id,Type),
+      Pid ! {Atom, Val }, loop(M);
 
 
-    {Pid,getWorstHourlyStation, Day, Hour, Type}  ->
-      try pollution:getWorstHourlyStation(M,Day, Hour,Type) of
-        Val -> Pid ! {reply, Val }, loop(M)
-      catch
-        error:no_such_value -> Pid ! {error, "there is no such values in monitor, so I cannot get it", no_such_value}, loop(M);
-        error:Error -> Pid ! {error, "error during getting worst day",Error}, loop(M)
-      end;
+
+    {Pid,getWorstHourlyStation,[Day, Hour, Type]}  ->
+    {Atom,Val}=pollution:getWorstHourlyStation(M,Day, Hour,Type),
+      Pid ! {Atom, Val }, loop(M);
 
 
     {Pid,stop} ->
